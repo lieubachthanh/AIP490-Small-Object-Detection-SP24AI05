@@ -84,15 +84,25 @@ def main():
         else:
             is_valid = False
 
-    if st.sidebar.selectbox("model", ("yolov5s", "yolov5-cus1", "yolov5-cus2", "orther")) == "orther":
-    # if model_name_option == len(model_name) - 1:
+    model_name_option = st.sidebar.selectbox("model", ("yolov5s", "yolov5-cus1", "yolov5-cus2", "orther"))
+    
+    model_weights = {
+    "yolov5s": "weights/yolov5s-visdrone.pt",
+    "yolov5-cus1": "weights/DSDyolov5s.pt",
+    "yolov5-cus2": "weights/DSDyolov5s.pt",
+    }
+    
+    if model_name_option in model_weights:
+        opt.weights = model_weights[model_name_option]
+    else:
         uploaded_model = st.sidebar.file_uploader("Upload a model file", type=['pt'])
         if uploaded_model is not None:
             is_valid = True
-            with st.spinner(text='Uploading...'):
-                with open(os.path.join("weights", uploaded_model.name), "wb") as f:
-                    f.write(uploaded_model.read())
-                opt.weights = f'weights/{uploaded_model.name}'
+            with st.spinner(text="Uploading..."):
+                model_path = os.path.join("weights", uploaded_model.name)
+                with open(model_path, "wb") as f:
+                    f.write(uploaded_model.getbuffer())
+            opt.weights = model_path
         else:
             is_valid = False
 
