@@ -42,7 +42,6 @@ if str(ROOT) not in sys.path:
 import export
 from models.experimental import attempt_load
 from models.yolo import SegmentationModel
-from segment.val import run as val_seg
 from utils import notebook_init
 from utils.general import LOGGER, check_yaml, file_size, print_args
 from utils.torch_utils import select_device
@@ -82,12 +81,9 @@ def run(
             assert suffix in str(w), "export failed"
 
             # Validate
-            if model_type == SegmentationModel:
-                result = val_seg(data, w, batch_size, imgsz, plots=False, device=device, task="speed", half=half)
-                metric = result[0][7]  # (box(p, r, map50, map), mask(p, r, map50, map), *loss(box, obj, cls))
-            else:  # DetectionModel:
-                result = val_det(data, w, batch_size, imgsz, plots=False, device=device, task="speed", half=half)
-                metric = result[0][3]  # (p, r, map50, map, *loss(box, obj, cls))
+            # DetectionModel:
+            result = val_det(data, w, batch_size, imgsz, plots=False, device=device, task="speed", half=half)
+            metric = result[0][3]  # (p, r, map50, map, *loss(box, obj, cls))
             speed = result[2][1]  # times (preprocess, inference, postprocess)
             y.append([name, round(file_size(w), 1), round(metric, 4), round(speed, 2)])  # MB, mAP, t_inference
         except Exception as e:
