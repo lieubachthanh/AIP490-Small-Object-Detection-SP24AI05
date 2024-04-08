@@ -4,11 +4,13 @@ import streamlit as st
 import time
 import detect 
 import os
+import glob
 # import sys
 import argparse
 from PIL import Image
 import torch
 import cv2
+import shutil
 
 def get_subdirs(b='.'):
     '''
@@ -29,6 +31,9 @@ def get_detection_folder():
     return max(get_subdirs(os.path.join('runs', 'detect')), key=os.path.getmtime)
 
 def main():
+    path = "runs\detect"
+    if os.path.exists(path):
+        shutil.rmtree(path) 
 
     st.title('Object Recognition Dashboard')
 
@@ -66,35 +71,51 @@ def main():
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     
     st.sidebar.title("Settings")
-
+    
     source = ("image", "video")
-    source_index = st.sidebar.selectbox("input", range(
-        len(source)), format_func=lambda x: source[x])
+    source_index = st.sidebar.selectbox("input", range(len(source)), format_func=lambda x: source[x])
+    img_file =None
+    vid_file =None
     if source_index == 0:
-        uploaded_file = st.sidebar.file_uploader(
-            "upload image", type=['png', 'jpeg', 'jpg'])
-        if uploaded_file is not None:
+        data_src = st.sidebar.radio("Select input source: ", ['Sample data', 'Upload your own data'])
+        if data_src == 'Sample data':
+            img_path = glob.glob('data/images/sample_images/*')
+            img_slider = st.slider("Select a test image.", min_value=1, max_value=len(img_path), step=1)
+            img_file = img_path[img_slider - 1]
             is_valid = True
-            with st.spinner(text='Uploading...'):
-                # st.sidebar.image(uploaded_file)
-                st.image(uploaded_file, caption="Selected Image")
-                
-                picture = Image.open(uploaded_file)
-                picture = picture.save(f'data/images/{uploaded_file.name}')
-                opt.source = f'data/images/{uploaded_file.name}'
         else:
-            is_valid = False
+            uploaded_file = st.sidebar.file_uploader(
+                "upload image", type=['png', 'jpeg', 'jpg'])
+            if uploaded_file is not None:
+                is_valid = True
+                with st.spinner(text='Uploading...'):
+                    # st.sidebar.image(uploaded_file)
+                    st.image(uploaded_file, caption="Selected Image")
+                    
+                    picture = Image.open(uploaded_file)
+                    picture = picture.save(f'data/images/{uploaded_file.name}')
+                    opt.source = f'data/images/{uploaded_file.name}'
+            else:
+                is_valid = False
     else:
-        uploaded_file = st.sidebar.file_uploader("upload video", type=['mp4'])
-        if uploaded_file is not None:
+        data_src = st.sidebar.radio("Select input source: ", ['Sample data', 'Upload your own data'])
+        if data_src == 'Sample data':
+            vid_file = 'data/videos/sample.mp4'
+            opt.source = 'data/videos/sample.mp4'
             is_valid = True
-            with st.spinner(text='Uploading...'):
-                st.sidebar.video(uploaded_file)
-                with open(os.path.join("data", "videos", uploaded_file.name), "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                opt.source = f'data/videos/{uploaded_file.name}'
         else:
-            is_valid = False
+            uploaded_file = st.sidebar.file_uploader("upload video", type=['mp4'])
+            if uploaded_file is not None:
+                is_valid = True
+                with st.spinner(text='Uploading...'):
+                    st.sidebar.video(uploaded_file)
+                    with open(os.path.join("data", "videos", uploaded_file.name), "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    vid_file = f'data/videos/{uploaded_file.name}'
+                    opt.source = vid_file
+                    
+            else:
+                is_valid = False
 
     model_name_option = st.sidebar.selectbox("model", ("yolov5s", "yolov5-cus1", "yolov5-cus2", "orther"))
     
@@ -136,45 +157,73 @@ def main():
     if is_valid:
         print('valid')
         print(opt)
-        if st.sidebar.button('detect'):
-            if source_index == 0:
-                detect.main(opt)
-                with st.spinner(text='Preparing Images'):
+        # if st.sidebar.button('detect'):
+        if source_index == 0:
+            with st.spinner(text='Preparing Images'):
+                if img_file:
+                    st.image(img_file, caption="Selected Image")
+                    opt.source = str(img_file)
+                    detect.main(opt)
+                    for img in os.listdir(get_detection_folder()):
+                        st.image(str(Path(f'{get_detection_folder()}')/ img), caption="Model prediction")
+                else:
+                    detect.main(opt)
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}') / img))
-            else:
-                opt.view_img
-                detect.main(opt)
-                with st.spinner(text='Preparing Video'):
-                    for vid in os.listdir(get_detection_folder()):
-                        st.video(str(Path(f'{get_detection_folder()}') / vid))
+        else:
+            if st.button('detect'):
+                try:
+                    cap = cv2.VideoCapture(vid_file)
+                    # custom_size = st.sidebar.checkbox("Custom frame size")
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    # if custom_size:
+                    #     width = st.sidebar.number_input("Width", min_value=120, step=20, value=width)
+                    #     height = st.sidebar.number_input("Height", min_value=120, step=20, value=height)
 
-            # if source_index == 1 and uploaded_file is not None:
-            #     cap = cv2.VideoCapture(opt.source)
-            #     if not cap.isOpened():
-            #         st.error("Error opening video file")
-            #     else:
-            #         with st.spinner(text='Performing real-time object detection...'):
-            #             prev_time = 0
-            #             while True:
-            #                 ret, frame = cap.read()
-            #                 if not ret:
-            #                     break
-                            
-            #                 # Perform object detection on the frame
-            #                 # ... (your existing object detection code goes here)
+                    fps = 0
+                    st1, st2, st3 = st.columns(3)
+                    with st1:
+                        st.markdown("## Height")
+                        st1_text = st.markdown(f"{height}")
+                    with st2:
+                        st.markdown("## Width")
+                        st2_text = st.markdown(f"{width}")
+                    with st3:
+                        st.markdown("## FPS")
+                        st3_text = st.markdown(f"{fps}")
+                    st.markdown("---")
+                    output = st.empty()
+                    prev_time = 0
+                    curr_time = 0
+                    fr = 0
+                    while True:
+                        ret, frame = cap.read()
+                        if not ret:
+                            st.write("Can't read frame, stream ended? Exiting ....")
+                            break
+                        frame = cv2.resize(frame, (width, height))
+                        # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB, channels="RGB")
+                        frame_name = f'frame_{fr}.jpg' 
+                        temp = os.path.join('data','videos','temp',frame_name)
+                        fr = fr + 1
+                        status = cv2.imwrite(temp, frame) 
+                        # print(status)
+                        opt.source = temp
+                        detect.main(opt)
+                        for img in os.listdir(get_detection_folder()):
+                            output.image(str(Path(f'{get_detection_folder()}') / img))
+                        curr_time = time.time()
+                        fps = 1 / (curr_time - prev_time)
+                        prev_time = curr_time
+                        st1_text.markdown(f"**{height}**")
+                        st2_text.markdown(f"**{width}**")
+                        st3_text.markdown(f"**{fps:.2f}**")
 
-            #                 # Calculate and display FPS
-            #                 curr_time = time.time()
-            #                 fps = 1 / (curr_time - prev_time)
-            #                 prev_time = curr_time
-            #                 cv2.putText(frame, f"FPS: {int(fps)}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-            #                 # Display the frame with detected objects and FPS
-            #                 st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="BGR")
-
-            # cap.release()
-
+                    cap.release()
+                except:
+                    st.markdown("Stoped")
+            
 if __name__ == "__main__":
     try:
         main()
