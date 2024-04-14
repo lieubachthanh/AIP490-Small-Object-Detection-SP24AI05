@@ -12,9 +12,10 @@ from PIL import Image
 import torch
 import cv2
 import shutil
+
 import yaml
 
-def edit_yaml_file(new_dir):
+def edit_yaml_file(filename, old_dir, new_dir):
   """Edits the YAML file, replacing 'old_dir' with 'new_dir'.
 
   Args:
@@ -22,20 +23,20 @@ def edit_yaml_file(new_dir):
       old_dir (str): The directory name to be replaced.
       new_dir (str): The new directory name.
   """
-
-  with open('data/test.yaml', 'r') as f:
+  with open(filename, 'r') as f:
     data = yaml.safe_load(f)
 
   # Replace occurrences of 'old_dir' with 'new_dir' in the data structure
   for key, value in data.items():
-    if isinstance(value, str) and value == 'test':
+    if isinstance(value, str) and value == old_dir:
       data[key] = new_dir
     elif isinstance(value, dict):
-      edit_yaml_file(value, 'test', new_dir)  # Recursive call for nested dictionaries
+      edit_yaml_file(value, old_dir, new_dir)  # Recursive call for nested dictionaries
 
   # Save the modified data to the file
   with open('data/test1img.yaml', 'w') as f:
     yaml.dump(data, f, default_flow_style=False)
+
 
 def get_subdirs(b='.'):
     '''
@@ -137,7 +138,7 @@ def main():
                     picture = Image.open(uploaded_file)
                     picture = picture.save(f'data/images/{uploaded_file.name}')
                     opt.source = f'data/images/{uploaded_file.name}'
-                    edit_yaml_file(img_name)
+                    edit_yaml_file("data/test.yaml", "test", img_name)
             else:
                 is_valid = False
     else:
@@ -164,7 +165,7 @@ def main():
     
     model_weights = {
     "yolov5s": "weights/yolov5s-visdrone.pt",
-    "yolov5-cus1": "weights/lam.pt",
+    "yolov5-cus1": "weights/best.pt",
     "yolov5-cus2": "weights/DSDyolov5s.pt",
     }
     
