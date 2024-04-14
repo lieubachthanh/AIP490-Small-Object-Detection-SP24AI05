@@ -12,30 +12,18 @@ from PIL import Image
 import torch
 import cv2
 import shutil
-
 import yaml
+import pandas as pd
 
-def edit_yaml_file(filename, old_dir, new_dir):
-  """Edits the YAML file, replacing 'old_dir' with 'new_dir'.
-
-  Args:
-      filename (str): The path to the YAML file.
-      old_dir (str): The directory name to be replaced.
-      new_dir (str): The new directory name.
-  """
-  with open(filename, 'r') as f:
-    data = yaml.safe_load(f)
-
-  # Replace occurrences of 'old_dir' with 'new_dir' in the data structure
-  for key, value in data.items():
-    if isinstance(value, str) and value == old_dir:
-      data[key] = new_dir
-    elif isinstance(value, dict):
-      edit_yaml_file(value, old_dir, new_dir)  # Recursive call for nested dictionaries
-
-  # Save the modified data to the file
-  with open('data/test1img.yaml', 'w') as f:
-    yaml.dump(data, f, default_flow_style=False)
+def edit_yaml_file(new_dir):
+    # Load the YAML file
+    with open('data/test.yaml', 'r') as file:
+        data = yaml.safe_load(file)
+    # Replace the paths
+    data['test'] = f'{new_dir}/images'
+    # Write the changes back to the file
+    with open('data/test1img.yaml', 'w') as file:
+        yaml.dump(data, file)
 
 
 def get_subdirs(b='.'):
@@ -138,7 +126,7 @@ def main():
                     picture = Image.open(uploaded_file)
                     picture = picture.save(f'data/images/{uploaded_file.name}')
                     opt.source = f'data/images/{uploaded_file.name}'
-                    edit_yaml_file("data/test.yaml", "test", img_name)
+                    edit_yaml_file(img_name)
             else:
                 is_valid = False
     else:
@@ -161,12 +149,11 @@ def main():
         else:
             is_valid = False
 
-    model_name_option = st.sidebar.selectbox("model", ("yolov5s", "yolov5-cus1", "yolov5-cus2", "orther"))
+    model_name_option = st.sidebar.selectbox("model", ("yolov5s", "yolov5-cus1", "orther"))
     
     model_weights = {
     "yolov5s": "weights/yolov5s-visdrone.pt",
-    "yolov5-cus1": "weights/best.pt",
-    "yolov5-cus2": "weights/DSDyolov5s.pt",
+    "yolov5-cus1": "weights/lam.pt",
     }
     
     if model_name_option in model_weights:
@@ -223,9 +210,9 @@ def main():
                     detect.main(opt)
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}') / img))
-                    
                     val.main(val_opt)
-                    
+                    df = pd.read_csv("data/result.csv")
+                    st.write(df)
         # else:
             # if st.button('detect'):
             #     detect.main(opt)
