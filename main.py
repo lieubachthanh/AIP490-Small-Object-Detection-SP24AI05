@@ -191,11 +191,9 @@ def main():
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}')/ img), caption="Model prediction")
                 else:
-                    opt.save_txt = True
                     detect.main(opt)
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}') / img))
-                        break
                     val.main(val_opt)
                     
         # else:
