@@ -21,6 +21,8 @@ def edit_yaml_file(new_dir):
         data = yaml.safe_load(file)
     # Replace the paths
     data['test'] = f'{new_dir}/images'
+    data['val'] = f'{new_dir}/images'
+    data['train'] = f'{new_dir}/images'
     # Write the changes back to the file
     with open('data/test1img.yaml', 'w') as file:
         yaml.dump(data, file)
@@ -210,6 +212,7 @@ def main():
                     detect.main(opt)
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}') / img))
+                    val_opt.data = ''
                     val.main(val_opt)
                     df = pd.read_csv("data/result.csv")
                     st.write(df)
