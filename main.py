@@ -168,12 +168,15 @@ def main():
     # opt.iou_thres = 0.6
 
     if torch.cuda.is_available():
-        device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=False, index=0)
-        opt.device = 'CUDA' if device_option == 'cuda' else 'cpu'
-        val_opt.device = 'CUDA' if device_option == 'cuda' else 'cpu'
+        # device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=False, index=0)
+        # opt.device = 'CUDA' if device_option == 'cuda' else 'cpu'
+        # val_opt.device = 'CUDA' if device_option == 'cuda' else 'cpu'
+        dev = st.sidebar.text_input('DEVICE','cpu')
+        opt.device = dev
+        val_opt.device = dev
     else:
-        device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=True, index=0)
-
+        # device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=True, index=0)
+        opt.device = 'cpu'
     if st.sidebar.checkbox("Soft-NMS"):
         opt.soft = True
         val_opt.soft = True
