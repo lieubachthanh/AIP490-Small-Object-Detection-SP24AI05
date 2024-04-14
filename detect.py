@@ -45,10 +45,10 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from ultralytics.utils.plotting import Annotator, colors, save_one_box
 
-import dill
-import pathlib
-from pathlib import Path
-pathlib.PosixPath = pathlib.WindowsPath
+# import dill
+# import pathlib
+# from pathlib import Path
+# pathlib.PosixPath = pathlib.WindowsPath
 
 from models.common import DetectMultiBackend
 from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
