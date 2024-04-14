@@ -212,7 +212,6 @@ def main():
                     detect.main(opt)
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}') / img))
-                    val_opt.data = ''
                     val.main(val_opt)
                     df = pd.read_csv("data/result.csv")
                     st.write(df)
