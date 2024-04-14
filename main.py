@@ -165,7 +165,7 @@ def main():
     
     model_weights = {
     "yolov5s": "weights/yolov5s-visdrone.pt",
-    "yolov5-cus1": "weights/best.pt",
+    "yolov5-cus1": "weights/lam.pt",
     "yolov5-cus2": "weights/DSDyolov5s.pt",
     }
     
