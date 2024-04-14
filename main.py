@@ -12,7 +12,30 @@ from PIL import Image
 import torch
 import cv2
 import shutil
+import yaml
 
+def edit_yaml_file(old_dir, new_dir):
+  """Edits the YAML file, replacing 'old_dir' with 'new_dir'.
+
+  Args:
+      filename (str): The path to the YAML file.
+      old_dir (str): The directory name to be replaced.
+      new_dir (str): The new directory name.
+  """
+
+  with open('data/test.yaml', 'r') as f:
+    data = yaml.safe_load(f)
+
+  # Replace occurrences of 'old_dir' with 'new_dir' in the data structure
+  for key, value in data.items():
+    if isinstance(value, str) and value == 'test':
+      data[key] = new_dir
+    elif isinstance(value, dict):
+      edit_yaml_file(value, 'test', new_dir)  # Recursive call for nested dictionaries
+
+  # Save the modified data to the file
+  with open('data/test1img.yaml', 'w') as f:
+    yaml.dump(data, f, default_flow_style=False)
 
 def get_subdirs(b='.'):
     '''
@@ -75,7 +98,7 @@ def main():
     opt.hide_conf = True
 
     val_parser = argparse.ArgumentParser()
-    val_parser.add_argument("--data", type=str, default="data/test.yaml", help="dataset.yaml path")
+    val_parser.add_argument("--data", type=str, default="data/test1img.yaml", help="dataset.yaml path")
     val_parser.add_argument("--weights", nargs="+", type=str, default='weights/yolov5s-visdrone.pt', help="model path(s)")
     val_parser.add_argument("--batch-size", type=int, default=1, help="batch size")
     val_parser.add_argument("--imgsz", "--img", "--img-size", type=int, default=640, help="inference size (pixels)")
@@ -92,8 +115,9 @@ def main():
     
     source = ("image", "video")
     source_index = st.sidebar.selectbox("input", range(len(source)), format_func=lambda x: source[x])
-    img_file =None
-    vid_file =None
+    img_file = None
+    vid_file = None
+    img_name = None
     if source_index == 0:
         data_src = st.sidebar.radio("Select input source: ", ['Sample data', 'Upload your own data'])
         if data_src == 'Sample data':
@@ -109,10 +133,12 @@ def main():
                 with st.spinner(text='Uploading...'):
                     # st.sidebar.image(uploaded_file)
                     st.image(uploaded_file, caption="Selected Image")
-                    
+                    img_name = str(uploaded_file.name)
+                    img_name = img_name[:-4]
                     picture = Image.open(uploaded_file)
                     picture = picture.save(f'data/images/{uploaded_file.name}')
                     opt.source = f'data/images/{uploaded_file.name}'
+                    
             else:
                 is_valid = False
     else:
@@ -197,6 +223,7 @@ def main():
                     detect.main(opt)
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}') / img))
+                    edit_yaml_file(img_name)
                     val.main(val_opt)
                     
         # else:
