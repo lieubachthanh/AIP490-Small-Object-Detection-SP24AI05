@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 import time
 import detect 
+import val
 import os
 import glob
 # import sys
@@ -11,6 +12,7 @@ from PIL import Image
 import torch
 import cv2
 import shutil
+
 
 def get_subdirs(b='.'):
     '''
@@ -31,9 +33,9 @@ def get_detection_folder():
     return max(get_subdirs(os.path.join('runs', 'detect')), key=os.path.getmtime)
 
 def main():
-    path = "runs\detect"
-    if os.path.exists(path):
-        shutil.rmtree(path) 
+    # path = "runs\detect"
+    # if os.path.exists(path):
+    #     shutil.rmtree(path) 
 
     st.title('Object Recognition Dashboard')
 
@@ -69,7 +71,23 @@ def main():
     parser.add_argument("--soft",default=False, action="store_true", help="use Soft-NMS")
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
+    opt.line_thickness = 1
+    opt.hide_conf = True
+
+    val_parser = argparse.ArgumentParser()
+    val_parser.add_argument("--data", type=str, default="data/test.yaml", help="dataset.yaml path")
+    val_parser.add_argument("--weights", nargs="+", type=str, default='weights/yolov5s-visdrone.pt', help="model path(s)")
+    val_parser.add_argument("--batch-size", type=int, default=1, help="batch size")
+    val_parser.add_argument("--imgsz", "--img", "--img-size", type=int, default=640, help="inference size (pixels)")
+    val_parser.add_argument("--conf-thres", type=float, default=0.001, help="confidence threshold")
+    val_parser.add_argument("--iou-thres", type=float, default=0.6, help="NMS IoU threshold")
+    val_parser.add_argument("--task", default="test", help="train, val, test, speed or study")
+    val_parser.add_argument("--device", default="", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
+    val_parser.add_argument("--soft", action="store_true", default=None, help="use Soft-NMS")
+    val_parser.add_argument("--save-hybrid", action="store_true", default=False, help="save label+prediction hybrid results to *.txt")
+    val_opt = val_parser.parse_args()
     
+
     st.sidebar.title("Settings")
     
     source = ("image", "video")
@@ -98,30 +116,30 @@ def main():
             else:
                 is_valid = False
     else:
-        data_src = st.sidebar.radio("Select input source: ", ['Sample data', 'Upload your own data'])
-        if data_src == 'Sample data':
-            vid_file = 'data/videos/sample.mp4'
-            opt.source = 'data/videos/sample.mp4'
+        # data_src = st.sidebar.radio("Select input source: ", ['Sample data', 'Upload your own data'])
+        # if data_src == 'Sample data':
+        #     vid_file = 'data/videos/sample.mp4'
+        #     opt.source = 'data/videos/sample.mp4'
+        #     is_valid = True
+        # else:
+        uploaded_file = st.sidebar.file_uploader("upload video", type=['mp4'])
+        if uploaded_file is not None:
             is_valid = True
+            with st.spinner(text='Uploading...'):
+                st.video(uploaded_file)
+                with open(os.path.join("data", "videos", uploaded_file.name), "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                vid_file = f'data/videos/{uploaded_file.name}'
+                opt.source = vid_file
+                
         else:
-            uploaded_file = st.sidebar.file_uploader("upload video", type=['mp4'])
-            if uploaded_file is not None:
-                is_valid = True
-                with st.spinner(text='Uploading...'):
-                    st.sidebar.video(uploaded_file)
-                    with open(os.path.join("data", "videos", uploaded_file.name), "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    vid_file = f'data/videos/{uploaded_file.name}'
-                    opt.source = vid_file
-                    
-            else:
-                is_valid = False
+            is_valid = False
 
     model_name_option = st.sidebar.selectbox("model", ("yolov5s", "yolov5-cus1", "yolov5-cus2", "orther"))
     
     model_weights = {
     "yolov5s": "weights/yolov5s-visdrone.pt",
-    "yolov5-cus1": "weights/lam.pt",
+    "yolov5-cus1": "weights/best.pt",
     "yolov5-cus2": "weights/DSDyolov5s.pt",
     }
     
@@ -141,18 +159,24 @@ def main():
 
     confidence = st.sidebar.slider('Confidence', min_value=0.001, max_value=1.0, value=.35)    
     opt.conf_thres = confidence
+    val_opt.conf_thres = confidence
+    # opt.conf_thres = 0.001
     
     iou = st.sidebar.slider('Iou', min_value=0.1, max_value=1.0, value=.45)
     opt.iou_thres = iou
+    val_opt.iou_thres = iou
+    # opt.iou_thres = 0.6
 
     if torch.cuda.is_available():
         device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=False, index=0)
         opt.device = '' if device_option == 'cuda' else 'cpu'
+        val_opt.device = '' if device_option == 'cuda' else 'cpu'
     else:
         device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=True, index=0)
 
     if st.sidebar.checkbox("Soft-NMS"):
         opt.soft = True
+        val_opt.soft = True
 
     if is_valid:
         print('valid')
@@ -167,62 +191,71 @@ def main():
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}')/ img), caption="Model prediction")
                 else:
+                    opt.save_txt = True
                     detect.main(opt)
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}') / img))
-        else:
-            if st.button('detect'):
-                try:
-                    cap = cv2.VideoCapture(vid_file)
-                    # custom_size = st.sidebar.checkbox("Custom frame size")
-                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    # if custom_size:
-                    #     width = st.sidebar.number_input("Width", min_value=120, step=20, value=width)
-                    #     height = st.sidebar.number_input("Height", min_value=120, step=20, value=height)
+                        break
+                    val.main(val_opt)
+                    
+        # else:
+            # if st.button('detect'):
+            #     detect.main(opt)
+            #     with st.spinner(text='Preparing Video'):
+            #         for vid in os.listdir(get_detection_folder()):
+                        # st.video(str(Path(f'{get_detection_folder()}') / vid))
 
-                    fps = 0
-                    st1, st2, st3 = st.columns(3)
-                    with st1:
-                        st.markdown("## Height")
-                        st1_text = st.markdown(f"{height}")
-                    with st2:
-                        st.markdown("## Width")
-                        st2_text = st.markdown(f"{width}")
-                    with st3:
-                        st.markdown("## FPS")
-                        st3_text = st.markdown(f"{fps}")
-                    st.markdown("---")
-                    output = st.empty()
-                    prev_time = 0
-                    curr_time = 0
-                    fr = 0
-                    while True:
-                        ret, frame = cap.read()
-                        if not ret:
-                            st.write("Can't read frame, stream ended? Exiting ....")
-                            break
-                        frame = cv2.resize(frame, (width, height))
-                        # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB, channels="RGB")
-                        frame_name = f'frame_{fr}.jpg' 
-                        temp = os.path.join('data','videos','temp',frame_name)
-                        fr = fr + 1
-                        status = cv2.imwrite(temp, frame) 
-                        # print(status)
-                        opt.source = temp
-                        detect.main(opt)
-                        for img in os.listdir(get_detection_folder()):
-                            output.image(str(Path(f'{get_detection_folder()}') / img))
-                        curr_time = time.time()
-                        fps = 1 / (curr_time - prev_time)
-                        prev_time = curr_time
-                        st1_text.markdown(f"**{height}**")
-                        st2_text.markdown(f"**{width}**")
-                        st3_text.markdown(f"**{fps:.2f}**")
+                # try:
+                #     cap = cv2.VideoCapture(vid_file)
+                #     # custom_size = st.sidebar.checkbox("Custom frame size")
+                #     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                #     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                #     # if custom_size:
+                #     #     width = st.sidebar.number_input("Width", min_value=120, step=20, value=width)
+                #     #     height = st.sidebar.number_input("Height", min_value=120, step=20, value=height)
 
-                    cap.release()
-                except:
-                    st.markdown("Stoped")
+                #     fps = 0
+                #     st1, st2, st3 = st.columns(3)
+                #     with st1:
+                #         st.markdown("## Height")
+                #         st1_text = st.markdown(f"{height}")
+                #     with st2:
+                #         st.markdown("## Width")
+                #         st2_text = st.markdown(f"{width}")
+                #     with st3:
+                #         st.markdown("## FPS")
+                #         st3_text = st.markdown(f"{fps}")
+                #     st.markdown("---")
+                #     output = st.empty()
+                #     prev_time = 0
+                #     curr_time = 0
+                #     fr = 0
+                #     while True:
+                #         ret, frame = cap.read()
+                #         if not ret:
+                #             st.write("Can't read frame, stream ended? Exiting ....")
+                #             break
+                #         frame = cv2.resize(frame, (width, height))
+                #         # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB, channels="RGB")
+                #         frame_name = f'frame_{fr}.jpg' 
+                #         temp = os.path.join('data','videos','temp',frame_name)
+                #         fr = fr + 1
+                #         status = cv2.imwrite(temp, frame) 
+                #         # print(status)
+                #         opt.source = temp
+                #         detect.main(opt)
+                #         for img in os.listdir(get_detection_folder()):
+                #             output.image(str(Path(f'{get_detection_folder()}') / img))
+                #         curr_time = time.time()
+                #         fps = 1 / (curr_time - prev_time)
+                #         prev_time = curr_time
+                #         st1_text.markdown(f"**{height}**")
+                #         st2_text.markdown(f"**{width}**")
+                #         st3_text.markdown(f"**{fps:.2f}**")
+
+                #     cap.release()
+                # except:
+                #     st.markdown("Stoped")
             
 if __name__ == "__main__":
     try:

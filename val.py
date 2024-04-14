@@ -375,7 +375,7 @@ def parse_opt():
     parser.add_argument("--augment", action="store_true", help="augmented inference")
     parser.add_argument("--verbose", action="store_true", help="report mAP by class")
     parser.add_argument("--save-txt", action="store_true", help="save results to *.txt")
-    parser.add_argument("--save-hybrid", action="store_true", help="save label+prediction hybrid results to *.txt")
+    parser.add_argument("--save-hybrid", action="store_true", default=False, help="save label+prediction hybrid results to *.txt")
     parser.add_argument("--save-conf", action="store_true", help="save confidences in --save-txt labels")
     parser.add_argument("--save-json", action="store_true", help="save a COCO-JSON results file")
     parser.add_argument("--project", default=ROOT / "runs/val", help="save to project/name")
