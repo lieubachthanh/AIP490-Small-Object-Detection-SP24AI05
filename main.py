@@ -169,8 +169,8 @@ def main():
 
     if torch.cuda.is_available():
         device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=False, index=0)
-        opt.device = '' if device_option == 'cuda' else 'cpu'
-        val_opt.device = '' if device_option == 'cuda' else 'cpu'
+        opt.device = 'CUDA:0' if device_option == 'cuda' else 'cpu'
+        val_opt.device = 'CUDA:0' if device_option == 'cuda' else 'cpu'
     else:
         device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=True, index=0)
 
