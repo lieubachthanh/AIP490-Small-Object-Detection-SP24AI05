@@ -14,7 +14,7 @@ import cv2
 import shutil
 import yaml
 
-def edit_yaml_file(old_dir, new_dir):
+def edit_yaml_file(new_dir):
   """Edits the YAML file, replacing 'old_dir' with 'new_dir'.
 
   Args:
@@ -117,7 +117,6 @@ def main():
     source_index = st.sidebar.selectbox("input", range(len(source)), format_func=lambda x: source[x])
     img_file = None
     vid_file = None
-    img_name = None
     if source_index == 0:
         data_src = st.sidebar.radio("Select input source: ", ['Sample data', 'Upload your own data'])
         if data_src == 'Sample data':
@@ -138,7 +137,7 @@ def main():
                     picture = Image.open(uploaded_file)
                     picture = picture.save(f'data/images/{uploaded_file.name}')
                     opt.source = f'data/images/{uploaded_file.name}'
-                    
+                    edit_yaml_file(img_name)
             else:
                 is_valid = False
     else:
@@ -223,7 +222,7 @@ def main():
                     detect.main(opt)
                     for img in os.listdir(get_detection_folder()):
                         st.image(str(Path(f'{get_detection_folder()}') / img))
-                    edit_yaml_file(img_name)
+                    
                     val.main(val_opt)
                     
         # else:
