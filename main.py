@@ -160,6 +160,7 @@ def main():
     
     if model_name_option in model_weights:
         opt.weights = model_weights[model_name_option]
+        val_opt.weights = model_weights[model_name_option]
     else:
         uploaded_model = st.sidebar.file_uploader("Upload a model file", type=['pt'])
         if uploaded_model is not None:
@@ -169,6 +170,7 @@ def main():
                 with open(model_path, "wb") as f:
                     f.write(uploaded_model.getbuffer())
             opt.weights = model_path
+            val_opt.weights = model_path
         else:
             is_valid = False
 
