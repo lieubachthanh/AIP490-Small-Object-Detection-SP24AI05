@@ -155,7 +155,7 @@ def main():
     
     model_weights = {
     "yolov5s": "weights/yolov5s-visdrone.pt",
-    "yolov5-cus1": "weights/lam.pt",
+    "yolov5-cus1": "weights/OursYOLO.pt",
     }
     
     if model_name_option in model_weights:
