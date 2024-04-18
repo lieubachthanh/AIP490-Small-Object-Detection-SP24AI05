@@ -82,19 +82,101 @@ class Conv(nn.Module):
     def forward_fuse(self, x):
         return self.act(self.conv(x))
 
+# ---------------------------- CBAM begin ---------------------------------
+class ChannelAttention(nn.Module):
+    def __init__(self, in_planes, ratio=16):
+        super(ChannelAttention, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.f1 = nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False)
+        self.relu = nn.ReLU()
+        self.f2 = nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
+        self.sigmoid = nn.Sigmoid()
 
-class DWConv(Conv):
-    # Depth-wise convolution
-    def __init__(self, c1, c2, k=1, s=1, d=1, act=True):  # ch_in, ch_out, kernel, stride, dilation, activation
-        super().__init__(c1, c2, k, s, g=math.gcd(c1, c2), d=d, act=act)
+    def forward(self, x):
+        # Global average pooling—>MLP two-layer convolution
+        avg_out = self.f2(self.relu(self.f1(self.avg_pool(x))))
+        # Global maximum pooling—>MLP two-layer convolution
+        max_out = self.f2(self.relu(self.f1(self.max_pool(x))))
+        out = self.sigmoid(avg_out + max_out)
+        return out
 
 
-class DWConvTranspose2d(nn.ConvTranspose2d):
-    # Depth-wise transpose convolution
-    def __init__(self, c1, c2, k=1, s=1, p1=0, p2=0):  # ch_in, ch_out, kernel, stride, padding, padding_out
-        super().__init__(c1, c2, k, s, p1, p2, groups=math.gcd(c1, c2))
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super(SpatialAttention, self).__init__()
+        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
+        padding = 3 if kernel_size == 7 else 1
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
+        self.sigmoid = nn.Sigmoid()
 
-    
+    def forward(self, x):
+        # Channel-based global average pooling (channel=1)
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        # Channel-based global max pooling (channel=1)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        # channel splicing (channel=2)
+        x = torch.cat([avg_out, max_out], dim=1)
+        # channel=1
+        x = self.conv(x)
+        return self.sigmoid(x)
+
+
+class CBAMBottleneck(nn.Module):
+    # ch_in, ch_out, shortcut, groups, expansion, ratio, kernel_size
+    def __init__(self, c1, c2, kernel_size=3, shortcut=True, g=1, e=0.5, ratio=16):
+        super(CBAMBottleneck, self).__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c_, c2, 3, 1, g=g)
+        self.add = shortcut and c1 == c2
+        # Add CBAM module
+        self.channel_attention = ChannelAttention(c2, ratio)
+        self.spatial_attention = SpatialAttention(kernel_size)
+
+    def forward(self, x):
+        # Consider the location to add the CBAM module: at the beginning of the bottleneck module, before shortcut in the bottleneck module, here choose before shortcut
+        x2 = self.cv2(self.cv1(x))  # The number of channels of x and x2 is the same
+        # Add the CBAM module before shortcut in the bottleneck module
+        out = self.channel_attention(x2) * x2
+        # print('outchannels:{}'.format(out.shape))
+        out = self.spatial_attention(out) * out
+        return x + out if self.add else out
+# ---------------------------- CBAM end ---------------------------------
+
+# ---------------------------- Involution begin ---------------------------------
+class Involution(nn.Module):
+    def __init__(self, c1, c2, kernel_size, stride):
+        super(Involution, self).__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.c1 = c1
+        reduction_ratio = 1
+        self.group_channels = 16
+        self.groups = self.c1 // self.group_channels
+        self.conv1 = Conv(
+            c1, c1 // reduction_ratio, 1)
+        self.conv2 = Conv(
+            c1 // reduction_ratio,
+            kernel_size ** 2 * self.groups,
+            1, 1)
+
+        if stride > 1:
+            self.avgpool = nn.AvgPool2d(stride, stride)
+        self.unfold = nn.Unfold(kernel_size, 1, (kernel_size - 1) // 2, stride)
+
+    def forward(self, x):
+        # weight = self.conv2(self.conv1(x if self.stride == 1 else self.avgpool(x)))
+        weight = self.conv2(x)
+        b, c, h, w = weight.shape
+        weight = weight.view(b, self.groups, self.kernel_size ** 2, h, w).unsqueeze(2)
+        out = self.unfold(x).view(b, self.groups, self.group_channels, self.kernel_size ** 2, h, w)
+        out = (weight * out).sum(dim=3).view(b, self.c1, h, w)
+
+        return out
+# ---------------------------- Involution end ---------------------------------
+
+# ---------------------------- C3Tr begin ---------------------------------
 class TransformerLayer(nn.Module):
     # Transformer layer https://arxiv.org/abs/2010.11929 (LayerNorm layers removed for better performance)
     def __init__(self, c, num_heads):
@@ -130,9 +212,32 @@ class TransformerBlock(nn.Module):
         p = x.flatten(2).permute(2, 0, 1)
         return self.tr(p + self.linear(p)).permute(1, 2, 0).reshape(b, self.c2, w, h)
     
+class C3TR(C3):
+    # C3 module with TransformerBlock()
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)
+        self.m = TransformerBlock(c_, c_, 4, n)
+# ---------------------------- C3Tr end ---------------------------------
+
+
+class DWConv(Conv):
+    # Depth-wise convolution
+    def __init__(self, c1, c2, k=1, s=1, d=1, act=True):  # ch_in, ch_out, kernel, stride, dilation, activation
+        super().__init__(c1, c2, k, s, g=math.gcd(c1, c2), d=d, act=act)
+
+
+class DWConvTranspose2d(nn.ConvTranspose2d):
+    # Depth-wise transpose convolution
+    def __init__(self, c1, c2, k=1, s=1, p1=0, p2=0):  # ch_in, ch_out, kernel, stride, padding, padding_out
+        super().__init__(c1, c2, k, s, p1, p2, groups=math.gcd(c1, c2))
+
+    
+
+    
 def window_reverse(windows, window_size: int, H: int, W: int):
     """
-    将一个个window还原成一个feature map
+    Reverse each window into a feature map
     Args:
         windows: (num_windows*B, window_size, window_size, C)
         window_size (int): Window size(M)
@@ -204,7 +309,7 @@ class DropPath(nn.Module):
 
 def window_partition(x, window_size: int):
     """
-    将feature map按照window_size划分成一个个没有重叠的window
+    Divide the feature map into windows without overlapping according to window_size
     Args:
         x: (B, H, W, C)
         window_size (int): window size(M)
@@ -219,36 +324,7 @@ def window_partition(x, window_size: int):
     windows = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)
     return windows
 
-class Involution(nn.Module):
 
-    def __init__(self, c1, c2, kernel_size, stride):
-        super(Involution, self).__init__()
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.c1 = c1
-        reduction_ratio = 1
-        self.group_channels = 16
-        self.groups = self.c1 // self.group_channels
-        self.conv1 = Conv(
-            c1, c1 // reduction_ratio, 1)
-        self.conv2 = Conv(
-            c1 // reduction_ratio,
-            kernel_size ** 2 * self.groups,
-            1, 1)
-
-        if stride > 1:
-            self.avgpool = nn.AvgPool2d(stride, stride)
-        self.unfold = nn.Unfold(kernel_size, 1, (kernel_size - 1) // 2, stride)
-
-    def forward(self, x):
-        # weight = self.conv2(self.conv1(x if self.stride == 1 else self.avgpool(x)))
-        weight = self.conv2(x)
-        b, c, h, w = weight.shape
-        weight = weight.view(b, self.groups, self.kernel_size ** 2, h, w).unsqueeze(2)
-        out = self.unfold(x).view(b, self.groups, self.group_channels, self.kernel_size ** 2, h, w)
-        out = (weight * out).sum(dim=3).view(b, self.c1, h, w)
-
-        return out
 
 class WindowAttention(nn.Module):
     r""" Window based multi-head self attention (W-MSA) module with relative position bias.
@@ -428,7 +504,7 @@ class SwinTransformerLayer(nn.Module):
             x = shifted_x
         
         if pad_r > 0 or pad_b > 0:
-            # 把前面pad的数据移除掉
+            # Remove the data from the previous pad
             x = x[:, :h, :w, :].contiguous()
 
         x = shortcut + self.drop_path(x)
@@ -521,13 +597,6 @@ class C3x(C3):
         c_ = int(c2 * e)
         self.m = nn.Sequential(*(CrossConv(c_, c_, 3, 1, g, 1.0, shortcut) for _ in range(n)))
 
-
-class C3TR(C3):
-    # C3 module with TransformerBlock()
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        c_ = int(c2 * e)
-        self.m = TransformerBlock(c_, c_, 4, n)
 
 class C3STR(C3):
     # C3 module with SwinTransformerBlock()
@@ -680,66 +749,6 @@ class Concat(nn.Module):
     def forward(self, x):
         return torch.cat(x, self.d)
 
-# ---------------------------- CBAM start ---------------------------------
-class ChannelAttention(nn.Module):
-    def __init__(self, in_planes, ratio=16):
-        super(ChannelAttention, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.max_pool = nn.AdaptiveMaxPool2d(1)
-        self.f1 = nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False)
-        self.relu = nn.ReLU()
-        self.f2 = nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        # 全局平均池化—>MLP两层卷积
-        avg_out = self.f2(self.relu(self.f1(self.avg_pool(x))))
-        # 全局最大池化—>MLP两层卷积
-        max_out = self.f2(self.relu(self.f1(self.max_pool(x))))
-        out = self.sigmoid(avg_out + max_out)
-        return out
-
-
-class SpatialAttention(nn.Module):
-    def __init__(self, kernel_size=7):
-        super(SpatialAttention, self).__init__()
-        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
-        padding = 3 if kernel_size == 7 else 1
-        self.conv = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        # 基于channel的全局平均池化(channel=1)
-        avg_out = torch.mean(x, dim=1, keepdim=True)
-        # 基于channel的全局最大池化(channel=1)
-        max_out, _ = torch.max(x, dim=1, keepdim=True)
-        # channel拼接(channel=2)
-        x = torch.cat([avg_out, max_out], dim=1)
-        # channel=1
-        x = self.conv(x)
-        return self.sigmoid(x)
-
-
-class CBAMBottleneck(nn.Module):
-    # ch_in, ch_out, shortcut, groups, expansion, ratio, kernel_size
-    def __init__(self, c1, c2, kernel_size=3, shortcut=True, g=1, e=0.5, ratio=16):
-        super(CBAMBottleneck, self).__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c_, c2, 3, 1, g=g)
-        self.add = shortcut and c1 == c2
-        # 加入CBAM模块
-        self.channel_attention = ChannelAttention(c2, ratio)
-        self.spatial_attention = SpatialAttention(kernel_size)
-
-    def forward(self, x):
-        # 考虑加入CBAM模块的位置：bottleneck模块刚开始时、bottleneck模块中shortcut之前，这里选择在shortcut之前
-        x2 = self.cv2(self.cv1(x))  # x和x2的channel数相同
-        # 在bottleneck模块中shortcut之前加入CBAM模块
-        out = self.channel_attention(x2) * x2
-        # print('outchannels:{}'.format(out.shape))
-        out = self.spatial_attention(out) * out
-        return x + out if self.add else out
 
 class DetectMultiBackend(nn.Module):
     # YOLOv5 MultiBackend class for python inference on various backends
