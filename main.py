@@ -1,50 +1,68 @@
 # from io import StringIO
-from pathlib import Path
+import argparse
+import glob
+import os
+import pandas as pd
 import streamlit as st
-import time
+import yaml
+import torch
+from pathlib import Path
+from PIL import Image
+# import cv2
+# import shutil
+# import time
+# import sys
+
 import detect 
 import val
-import os
-import glob
-# import sys
-import argparse
-from PIL import Image
-import torch
-import cv2
-import shutil
-import yaml
-import pandas as pd
 
 def edit_yaml_file(new_dir):
+    """
+    Edits the 'data/test.yaml' file with the new directory paths.
+
+    Args:
+        new_dir (str): The new directory path.
+    """
     # Load the YAML file
     with open('data/test.yaml', 'r') as file:
         data = yaml.safe_load(file)
+
     # Replace the paths
     data['test'] = f'{new_dir}/images'
     data['val'] = f'{new_dir}/images'
     data['train'] = f'{new_dir}/images'
+
     # Write the changes back to the file
     with open('data/test1img.yaml', 'w') as file:
         yaml.dump(data, file)
 
 
-def get_subdirs(b='.'):
-    '''
-        Returns all sub-directories in a specific Path
-    '''
+def get_subdirs(directory='.'):
+    """
+    Returns a list of all sub-directories in the specified directory.
+
+    Args:
+        directory (str, optional): The directory to search. Defaults to the current directory.
+
+    Returns:
+        list: A list of sub-directories.
+    """
     result = []
-    for d in os.listdir(b):
-        bd = os.path.join(b, d)
-        if os.path.isdir(bd):
-            result.append(bd)
+    for entry in os.listdir(directory):
+        path = os.path.join(directory, entry)
+        if os.path.isdir(path):
+            result.append(path)
     return result
 
-
 def get_detection_folder():
-    '''
-        Returns the latest folder in a runs\detect
-    '''
+    """
+    Returns the path of the latest folder in the 'runs/detect' directory.
+
+    Returns:
+        str: The path of the latest 'runs/detect' folder.
+    """
     return max(get_subdirs(os.path.join('runs', 'detect')), key=os.path.getmtime)
+
 
 def main():
     # path = "runs\detect"
@@ -108,6 +126,7 @@ def main():
     source_index = st.sidebar.selectbox("input", range(len(source)), format_func=lambda x: source[x])
     img_file = None
     vid_file = None
+
     if source_index == 0:
         data_src = st.sidebar.radio("Select input source: ", ['Sample data', 'Upload your own data'])
         if data_src == 'Sample data':
@@ -121,7 +140,6 @@ def main():
             if uploaded_file is not None:
                 is_valid = True
                 with st.spinner(text='Uploading...'):
-                    # st.sidebar.image(uploaded_file)
                     st.image(uploaded_file, caption="Selected Image")
                     img_name = str(uploaded_file.name)
                     img_name = img_name[:-4]
@@ -132,24 +150,23 @@ def main():
             else:
                 is_valid = False
     else:
-        # data_src = st.sidebar.radio("Select input source: ", ['Sample data', 'Upload your own data'])
-        # if data_src == 'Sample data':
-        #     vid_file = 'data/videos/sample.mp4'
-        #     opt.source = 'data/videos/sample.mp4'
-        #     is_valid = True
-        # else:
-        uploaded_file = st.sidebar.file_uploader("upload video", type=['mp4'])
-        if uploaded_file is not None:
+        data_src = st.sidebar.radio("Select input source: ", ['Sample data', 'Upload your own data'])
+        if data_src == 'Sample data':
+            video_file = open('data/videos/result/demo2.mp4', 'rb')
+            video_bytes = video_file.read()
+            st.video(video_bytes)
             is_valid = True
-            with st.spinner(text='Uploading...'):
-                st.video(uploaded_file)
-                with open(os.path.join("data", "videos", uploaded_file.name), "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                vid_file = f'data/videos/{uploaded_file.name}'
-                opt.source = vid_file
-                
         else:
-            is_valid = False
+            uploaded_file = st.sidebar.file_uploader("upload video", type=['mp4'])
+            if uploaded_file is not None:
+                with st.spinner(text='Uploading...'):
+                    with open(os.path.join("data", "videos", uploaded_file.name), "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    vid_file = f'data/videos/{uploaded_file.name}'
+                    opt.source = vid_file
+                is_valid = True
+            else:
+                is_valid = False
 
     model_name_option = st.sidebar.selectbox("model", ("yolov5s", "yolov5-cus1", "orther"))
     
@@ -174,36 +191,35 @@ def main():
         else:
             is_valid = False
 
-    confidence = st.sidebar.slider('Confidence', min_value=0.001, max_value=1.0, value=.35)    
-    opt.conf_thres = confidence
-    val_opt.conf_thres = confidence
-    # opt.conf_thres = 0.001
+    # confidence = st.sidebar.slider('Confidence', min_value=0.001, max_value=1.0, value=.35)    
+    # opt.conf_thres = confidence
+    # val_opt.conf_thres = confidence
+    opt.conf_thres = 0.001
+    val_opt.conf_thres = 0.001
     
-    iou = st.sidebar.slider('Iou', min_value=0.1, max_value=1.0, value=.45)
-    opt.iou_thres = iou
-    val_opt.iou_thres = iou
-    # opt.iou_thres = 0.6
+    # iou = st.sidebar.slider('Iou', min_value=0.1, max_value=1.0, value=.45)
+    # opt.iou_thres = iou
+    # val_opt.iou_thres = iou
+    opt.iou_thres = 0.5
+    val_opt.iou_thres = 0.5
 
     if torch.cuda.is_available():
-        # device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=False, index=0)
-        # opt.device = 'CUDA' if device_option == 'cuda' else 'cpu'
-        # val_opt.device = 'CUDA' if device_option == 'cuda' else 'cpu'
         dev = st.sidebar.text_input('DEVICE','cpu')
         opt.device = dev
         val_opt.device = dev
     else:
-        # device_option = st.sidebar.radio("Select Device", ['cpu', 'cuda'], disabled=True, index=0)
         opt.device = 'cpu'
-    if st.sidebar.checkbox("Soft-NMS"):
-        opt.soft = True
-        val_opt.soft = True
+
+    # if st.sidebar.checkbox("Soft-NMS"):
+    opt.soft = True
+    val_opt.soft = True
 
     if is_valid:
         print('valid')
         print(opt)
         # if st.sidebar.button('detect'):
         if source_index == 0:
-            with st.spinner(text='Preparing Images'):
+            with st.spinner(text='Processing...'):
                 if img_file:
                     st.image(img_file, caption="Selected Image")
                     opt.source = str(img_file)
@@ -220,64 +236,16 @@ def main():
                         st.write(df)
                     except:
                         pass
-        # else:
-            # if st.button('detect'):
-            #     detect.main(opt)
-            #     with st.spinner(text='Preparing Video'):
-            #         for vid in os.listdir(get_detection_folder()):
-                        # st.video(str(Path(f'{get_detection_folder()}') / vid))
+        else:
+            if st.button('detect') and vid_file:
+                with st.spinner(text='Processing...'):
+                    detect.main(opt)
+                    with st.spinner(text='Preparing Video'):
+                        for vid in os.listdir(get_detection_folder()):
+                            video = open(str(Path(f'{get_detection_folder()}') / vid), 'rb')
+                            vid_bytes = video.read()
+                            st.video(vid_bytes)
 
-                # try:
-                #     cap = cv2.VideoCapture(vid_file)
-                #     # custom_size = st.sidebar.checkbox("Custom frame size")
-                #     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                #     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                #     # if custom_size:
-                #     #     width = st.sidebar.number_input("Width", min_value=120, step=20, value=width)
-                #     #     height = st.sidebar.number_input("Height", min_value=120, step=20, value=height)
-
-                #     fps = 0
-                #     st1, st2, st3 = st.columns(3)
-                #     with st1:
-                #         st.markdown("## Height")
-                #         st1_text = st.markdown(f"{height}")
-                #     with st2:
-                #         st.markdown("## Width")
-                #         st2_text = st.markdown(f"{width}")
-                #     with st3:
-                #         st.markdown("## FPS")
-                #         st3_text = st.markdown(f"{fps}")
-                #     st.markdown("---")
-                #     output = st.empty()
-                #     prev_time = 0
-                #     curr_time = 0
-                #     fr = 0
-                #     while True:
-                #         ret, frame = cap.read()
-                #         if not ret:
-                #             st.write("Can't read frame, stream ended? Exiting ....")
-                #             break
-                #         frame = cv2.resize(frame, (width, height))
-                #         # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB, channels="RGB")
-                #         frame_name = f'frame_{fr}.jpg' 
-                #         temp = os.path.join('data','videos','temp',frame_name)
-                #         fr = fr + 1
-                #         status = cv2.imwrite(temp, frame) 
-                #         # print(status)
-                #         opt.source = temp
-                #         detect.main(opt)
-                #         for img in os.listdir(get_detection_folder()):
-                #             output.image(str(Path(f'{get_detection_folder()}') / img))
-                #         curr_time = time.time()
-                #         fps = 1 / (curr_time - prev_time)
-                #         prev_time = curr_time
-                #         st1_text.markdown(f"**{height}**")
-                #         st2_text.markdown(f"**{width}**")
-                #         st3_text.markdown(f"**{fps:.2f}**")
-
-                #     cap.release()
-                # except:
-                #     st.markdown("Stoped")
             
 if __name__ == "__main__":
     try:
