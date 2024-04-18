@@ -8,6 +8,11 @@ $ cd AIP490-Small-Object-Detection-SP24AI05
 $ pip install -r requirements.txt
 ```
 
+## Run demo
+```bash
+$ streamlit run demo.py
+```
+
 ## Resources
 * `Datasets` : [VisDrone](http://aiskyeye.com/download/object-detection-2/)
 * `Weights` : [CustomYOLO](https://github.com/lieubachthanh/AIP490-Small-Object-Detection-SP24AI05/blob/main/weights/OursYOLO.pt)

@@ -1,0 +1,16 @@
+names:
+  0: pedestrian
+  1: people
+  2: bicycle
+  3: car
+  4: van
+  5: truck
+  6: tricycle
+  7: awning-tricycle
+  8: bus
+  9: motor
+nc: 10
+path: data/images
+test: 9999952_00000_d_0000021/images
+train: 9999952_00000_d_0000021/images
+val: 9999952_00000_d_0000021/images
